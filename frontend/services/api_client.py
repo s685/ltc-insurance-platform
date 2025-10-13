@@ -16,17 +16,17 @@ from tenacity import (
 
 
 class ClaimSchema(BaseModel):
-    """Schema for claim data."""
+    """Schema for claim data - adapted for new table structure."""
 
     claim_id: str
-    claim_number: str
+    claim_number: Optional[str] = None
     policy_id: str
-    status: str
-    claim_type: str
-    submission_date: datetime
-    service_start_date: date
+    status: str = "PENDING"
+    claim_type: Optional[str] = None
+    submission_date: Optional[datetime] = None
+    service_start_date: Optional[date] = None
     service_end_date: Optional[date] = None
-    claim_amount: Decimal
+    claim_amount: Decimal = Decimal("0")
     approved_amount: Optional[Decimal] = None
     paid_amount: Optional[Decimal] = None
     denial_reason: Optional[str] = None
@@ -35,27 +35,41 @@ class ClaimSchema(BaseModel):
     reviewer_id: Optional[str] = None
     facility_name: Optional[str] = None
     diagnosis_codes: List[str] = Field(default_factory=list)
+    # New fields from snapshot table
+    claimant_name: Optional[str] = None
+    processing_days: Optional[int] = None
+    rfb_id: Optional[int] = None
+    carrier_name: Optional[str] = None
 
 
 class PolicySchema(BaseModel):
-    """Schema for policy data."""
+    """Schema for policy data - adapted for new table structure."""
 
     policy_id: str
-    policy_number: str
-    policy_type: str
-    status: str
-    issue_date: date
-    effective_date: date
-    premium_amount: Decimal
-    benefit_amount: Decimal
-    elimination_period_days: int
-    benefit_period_months: int
-    insured_name: str
-    insured_age: int
-    insured_state: str
+    policy_number: Optional[str] = None
+    policy_type: Optional[str] = None  # May not be available
+    status: Optional[str] = None
+    issue_date: Optional[date] = None
+    effective_date: Optional[date] = None
+    premium_amount: Decimal = Decimal("0")
+    benefit_amount: Optional[Decimal] = None
+    elimination_period_days: Optional[int] = None
+    benefit_period_months: Optional[int] = None
+    insured_name: Optional[str] = None
+    insured_age: Optional[int] = None
+    insured_state: Optional[str] = None
     agent_id: Optional[str] = None
     termination_date: Optional[date] = None
     last_premium_date: Optional[date] = None
+    # New fields from snapshot table
+    annualized_premium: Optional[Decimal] = None
+    insured_city: Optional[str] = None
+    insured_zip: Optional[str] = None
+    policy_residence_state: Optional[str] = None
+    premium_frequency: Optional[str] = None
+    benefit_inflation: Optional[str] = None
+    total_active_claims: Optional[int] = None
+    carrier_name: Optional[str] = None
 
 
 class ClaimSummary(BaseModel):

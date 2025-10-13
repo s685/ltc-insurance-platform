@@ -10,60 +10,106 @@ from .domain import ClaimStatus, PolicyStatus, PolicyType
 
 
 class PolicySchema(BaseModel):
-    """Schema for policy data."""
+    """Schema for policy data - adapted for POLICY_MONTHLY_SNAPSHOT_FACT."""
 
+    # Core identifiers
     policy_id: str = Field(..., description="Unique policy identifier")
-    policy_number: str = Field(..., description="Policy number")
-    policy_type: PolicyType = Field(..., description="Type of policy")
-    status: PolicyStatus = Field(..., description="Current policy status")
-    issue_date: date = Field(..., description="Policy issue date")
-    effective_date: date = Field(..., description="Policy effective date")
-    premium_amount: Decimal = Field(..., description="Monthly premium amount", ge=0)
-    benefit_amount: Decimal = Field(..., description="Daily benefit amount", ge=0)
-    elimination_period_days: int = Field(
-        ..., description="Elimination period in days", ge=0
-    )
-    benefit_period_months: int = Field(
-        ..., description="Benefit period in months", ge=0
-    )
-    insured_name: str = Field(..., description="Name of insured person")
-    insured_age: int = Field(..., description="Age of insured person", ge=0, le=120)
-    insured_state: str = Field(..., description="State of insured person", min_length=2)
-    agent_id: Optional[str] = Field(None, description="Agent identifier")
+    policy_number: Optional[str] = Field(None, description="Policy number")
+    
+    # Status and type (simplified for frontend)
+    status: Optional[str] = Field(None, description="Current policy status")
+    
+    # Dates
+    issue_date: Optional[date] = Field(None, description="Policy issue date")
+    effective_date: Optional[date] = Field(None, description="Policy effective date")
     termination_date: Optional[date] = Field(None, description="Policy termination date")
     last_premium_date: Optional[date] = Field(None, description="Last premium payment date")
+    
+    # Premium and benefits
+    premium_amount: Decimal = Field(default=Decimal("0"), description="Monthly premium amount", ge=0)
+    benefit_amount: Optional[Decimal] = Field(None, description="Benefit amount", ge=0)
+    annualized_premium: Optional[Decimal] = Field(None, description="Annual premium")
+    
+    # Insured information
+    insured_name: Optional[str] = Field(None, description="Name of insured person")
+    insured_age: Optional[int] = Field(None, description="Age of insured person", ge=0, le=120)
+    insured_state: Optional[str] = Field(None, description="State of insured person")
+    insured_city: Optional[str] = Field(None, description="City of insured person")
+    insured_zip: Optional[str] = Field(None, description="ZIP code")
+    
+    # Additional fields from snapshot
+    policy_residence_state: Optional[str] = Field(None, description="Policy residence state")
+    premium_frequency: Optional[str] = Field(None, description="Premium frequency")
+    benefit_inflation: Optional[str] = Field(None, description="Benefit inflation type")
+    
+    # Claim information
+    total_active_claims: Optional[int] = Field(None, description="Number of active claims")
+    claim_status_cd: Optional[str] = Field(None, description="Current claim status code")
+    
+    # Metadata
+    carrier_name: Optional[str] = Field(None, description="Insurance carrier name")
+    environment: Optional[str] = Field(None, description="Environment (PROD/TEST)")
 
     model_config = {"from_attributes": True, "use_enum_values": False}
 
     @field_validator("insured_state")
     @classmethod
-    def validate_state(cls, v: str) -> str:
+    def validate_state(cls, v: Optional[str]) -> Optional[str]:
         """Validate state code format."""
-        return v.upper()
+        return v.upper() if v else None
 
 
 class ClaimSchema(BaseModel):
-    """Schema for claim data."""
+    """Schema for claim data - adapted for CLAIMS_TPA_FEE_WORKSHEET_SNAPSHOT_FACT."""
 
+    # Core identifiers
     claim_id: str = Field(..., description="Unique claim identifier")
-    claim_number: str = Field(..., description="Claim number")
-    policy_id: str = Field(..., description="Associated policy ID")
-    status: ClaimStatus = Field(..., description="Current claim status")
-    claim_type: str = Field(..., description="Type of claim")
-    submission_date: datetime = Field(..., description="Claim submission date")
-    service_start_date: date = Field(..., description="Service start date")
-    service_end_date: Optional[date] = Field(None, description="Service end date")
-    claim_amount: Decimal = Field(..., description="Claimed amount", ge=0)
+    claim_number: Optional[str] = Field(None, description="Claim number (policy number)")
+    policy_id: str = Field(..., description="Associated policy dimension ID")
+    
+    # Claimant information
+    claimant_name: Optional[str] = Field(None, description="Claimant name")
+    
+    # Status and decision
+    status: str = Field(default="PENDING", description="Current claim status/decision")
+    claim_type: Optional[str] = Field(None, description="Type of claim")
+    
+    # Dates
+    submission_date: Optional[datetime] = Field(None, description="Claim submission date (RFB entered)")
+    service_start_date: Optional[date] = Field(None, description="Service start date (EOB start)")
+    service_end_date: Optional[date] = Field(None, description="Service end date (EOB end)")
+    approval_date: Optional[datetime] = Field(None, description="Approval/certification date")
+    certification_date: Optional[date] = Field(None, description="Certification date")
+    
+    # Financial information (adapted from decision counts)
+    claim_amount: Decimal = Field(default=Decimal("0"), description="Claim amount", ge=0)
     approved_amount: Optional[Decimal] = Field(None, description="Approved amount", ge=0)
     paid_amount: Optional[Decimal] = Field(None, description="Paid amount", ge=0)
+    
+    # Processing information
+    processing_days: Optional[int] = Field(None, description="Processing TAT in days")
     denial_reason: Optional[str] = Field(None, description="Reason for denial")
-    approval_date: Optional[datetime] = Field(None, description="Approval date")
-    payment_date: Optional[datetime] = Field(None, description="Payment date")
-    reviewer_id: Optional[str] = Field(None, description="Reviewer identifier")
-    facility_name: Optional[str] = Field(None, description="Facility name")
-    diagnosis_codes: List[str] = Field(
-        default_factory=list, description="ICD-10 diagnosis codes"
-    )
+    
+    # RFB information
+    rfb_id: Optional[int] = Field(None, description="Request for Benefit ID")
+    rfb_reference: Optional[str] = Field(None, description="RFB reference number")
+    
+    # Decision metrics
+    initial_decisions_facilities: Optional[int] = Field(None, description="Initial decisions for facilities")
+    initial_decisions_home_health: Optional[int] = Field(None, description="Initial decisions for home health")
+    ongoing_rate_month: Optional[int] = Field(None, description="Ongoing rate per month")
+    
+    # Provider information
+    facility_name: Optional[str] = Field(None, description="Facility/provider type")
+    provider_count: Optional[int] = Field(None, description="Total provider count")
+    
+    # Geographic information
+    life_state: Optional[str] = Field(None, description="Life state")
+    issue_state: Optional[str] = Field(None, description="Issue state")
+    
+    # Metadata
+    carrier_name: Optional[str] = Field(None, description="Insurance carrier name")
+    snapshot_date: Optional[date] = Field(None, description="Snapshot date")
 
     model_config = {"from_attributes": True, "use_enum_values": False}
 

@@ -159,10 +159,10 @@ def render_claims_dashboard(
             claims_data.append(
                 {
                     "Claim ID": claim.claim_id[:8] + "...",
-                    "Claim Number": claim.claim_number,
+                    "Claim Number": claim.claim_number or "N/A",
                     "Status": claim.status,
-                    "Type": claim.claim_type,
-                    "Submission Date": claim.submission_date.strftime("%Y-%m-%d"),
+                    "Type": claim.claim_type or "N/A",
+                    "Submission Date": claim.submission_date.strftime("%Y-%m-%d") if claim.submission_date else "N/A",
                     "Claim Amount": format_currency(claim.claim_amount),
                     "Approved Amount": (
                         format_currency(claim.approved_amount)

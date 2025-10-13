@@ -34,7 +34,7 @@
 #### Backend Setup
 ```powershell
 # Navigate to backend directory
-cd "C:\Users\Admin\OneDrive\Documents\Data Science\backend"
+cd "backend"
 
 # Verify virtual environment exists
 .\venv\Scripts\python.exe --version
@@ -46,7 +46,7 @@ cd "C:\Users\Admin\OneDrive\Documents\Data Science\backend"
 #### Frontend Setup
 ```powershell
 # Navigate to frontend directory
-cd "C:\Users\Admin\OneDrive\Documents\Data Science\frontend"
+cd "frontend"
 
 # Install dependencies (if needed)
 pip install -r requirements.txt

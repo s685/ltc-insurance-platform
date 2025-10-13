@@ -83,24 +83,73 @@ class ClaimsService:
         return await self.claims_repo.count(filters=filters)
 
     def _domain_to_schema(self, claim: Claim) -> ClaimSchema:
-        """Convert domain model to API schema."""
+        """Convert domain model to API schema - adapted for new table structure."""
+        # Convert datetime to datetime if needed
+        submission_dt = None
+        if claim.rfb_entered_dt:
+            from datetime import datetime as dt
+            if isinstance(claim.rfb_entered_dt, dt):
+                submission_dt = claim.rfb_entered_dt
+            else:
+                submission_dt = dt.combine(claim.rfb_entered_dt, dt.min.time())
+        
+        approval_dt = None
+        if claim.certification_date:
+            from datetime import datetime as dt
+            approval_dt = dt.combine(claim.certification_date, dt.min.time())
+        
+        # Calculate claim amount from decision counts
+        total_decisions = claim.total_decisions()
+        claim_amount = Decimal(str(claim.ongoing_rate_month or 0))
+        
         return ClaimSchema(
-            claim_id=claim.claim_id,
-            claim_number=claim.claim_number,
-            policy_id=claim.policy_id,
-            status=claim.status,
-            claim_type=claim.claim_type,
-            submission_date=claim.submission_date,
-            service_start_date=claim.service_start_date,
-            service_end_date=claim.service_end_date,
-            claim_amount=claim.claim_amount,
-            approved_amount=claim.approved_amount,
-            paid_amount=claim.paid_amount,
-            denial_reason=claim.denial_reason,
-            approval_date=claim.approval_date,
-            payment_date=claim.payment_date,
-            reviewer_id=claim.reviewer_id,
-            facility_name=claim.facility_name,
-            diagnosis_codes=claim.diagnosis_codes,
+            # Core identifiers
+            claim_id=claim.tpa_fee_worksheet_snapshot_fact_id,
+            claim_number=claim.policy_number,
+            policy_id=claim.policy_dim_id,
+            
+            # Claimant information
+            claimant_name=claim.claimant_name,
+            
+            # Status and decision
+            status=claim.decision or "PENDING",
+            claim_type=str(claim.claim_type_cd) if claim.claim_type_cd else None,
+            
+            # Dates
+            submission_date=submission_dt,
+            service_start_date=claim.latest_eob_start_dt,
+            service_end_date=claim.latest_eob_end_dt,
+            approval_date=approval_dt,
+            certification_date=claim.certification_date,
+            
+            # Financial information
+            claim_amount=claim_amount,
+            approved_amount=Decimal(str(claim.initial_decisions_facilities or 0)) if claim.is_approved() else None,
+            paid_amount=None,  # Not available in new structure
+            
+            # Processing information
+            processing_days=claim.rfb_process_to_decision_tat,
+            denial_reason=None if claim.is_approved() else claim.decision,
+            
+            # RFB information
+            rfb_id=claim.rfb_id,
+            rfb_reference=claim.rfb_reference,
+            
+            # Decision metrics
+            initial_decisions_facilities=claim.initial_decisions_facilities,
+            initial_decisions_home_health=claim.initial_decisions_home_health,
+            ongoing_rate_month=claim.ongoing_rate_month,
+            
+            # Provider information
+            facility_name=claim.poc_provider_type_desc,
+            provider_count=claim.total_eligible_provider_count,
+            
+            # Geographic information
+            life_state=claim.life_state,
+            issue_state=claim.issue_state,
+            
+            # Metadata
+            carrier_name=claim.carrier_name,
+            snapshot_date=claim.snapshot_date,
         )
 

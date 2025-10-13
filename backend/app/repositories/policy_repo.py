@@ -21,7 +21,7 @@ class PolicyRepository(BaseRepository[Policy]):
     def __init__(self, session: Session) -> None:
         """Initialize policy repository."""
         super().__init__(session)
-        self._table_name = "POLICIES"
+        self._table_name = "POLICY_MONTHLY_SNAPSHOT_FACT"
 
     @property
     def table_name(self) -> str:
@@ -35,7 +35,7 @@ class PolicyRepository(BaseRepository[Policy]):
             df = await loop.run_in_executor(
                 None,
                 lambda: self.session.table(self.table_name).filter(
-                    col("POLICY_ID") == policy_id
+                    col("POLICY_MONTHLY_SNAPSHOT_ID") == policy_id
                 ),
             )
             rows = await loop.run_in_executor(None, df.collect)
@@ -101,17 +101,17 @@ class PolicyRepository(BaseRepository[Policy]):
                 df = self.session.table(self.table_name)
 
                 if start_date:
-                    df = df.filter(col("ISSUE_DATE") >= start_date)
+                    df = df.filter(col("ORIGINAL_EFFECTIVE_DT") >= start_date)
                 if end_date:
-                    df = df.filter(col("ISSUE_DATE") <= end_date)
+                    df = df.filter(col("ORIGINAL_EFFECTIVE_DT") <= end_date)
 
-                # Aggregate statistics
+                # Aggregate statistics - adapted for new table structure
                 result = df.agg(
-                    count(col("POLICY_ID")).alias("TOTAL_POLICIES"),
-                    sf_sum(col("PREMIUM_AMOUNT")).alias("TOTAL_PREMIUM"),
-                    avg(col("PREMIUM_AMOUNT")).alias("AVG_PREMIUM"),
-                    avg(col("BENEFIT_AMOUNT")).alias("AVG_BENEFIT"),
-                    avg(col("INSURED_AGE")).alias("AVG_AGE"),
+                    count(col("POLICY_MONTHLY_SNAPSHOT_ID")).alias("TOTAL_POLICIES"),
+                    sf_sum(col("ANNUALIZED_PREMIUM")).alias("TOTAL_PREMIUM"),
+                    avg(col("ANNUALIZED_PREMIUM")).alias("AVG_PREMIUM"),
+                    avg(col("TOTAL_REQUEST_FOR_REIMBURSMENT_BENEFIT")).alias("AVG_BENEFIT"),
+                    avg(col("RATED_AGE")).alias("AVG_AGE"),
                 ).collect()
 
                 return result[0] if result else None
@@ -143,19 +143,19 @@ class PolicyRepository(BaseRepository[Policy]):
                 df = self.session.table(self.table_name)
 
                 if start_date:
-                    df = df.filter(col("ISSUE_DATE") >= start_date)
+                    df = df.filter(col("ORIGINAL_EFFECTIVE_DT") >= start_date)
                 if end_date:
-                    df = df.filter(col("ISSUE_DATE") <= end_date)
+                    df = df.filter(col("ORIGINAL_EFFECTIVE_DT") <= end_date)
 
                 return (
-                    df.group_by("STATUS")
-                    .agg(count(col("POLICY_ID")).alias("COUNT"))
+                    df.group_by("CLAIM_STATUS_CD")
+                    .agg(count(col("POLICY_MONTHLY_SNAPSHOT_ID")).alias("COUNT"))
                     .collect()
                 )
 
             rows = await loop.run_in_executor(None, query)
 
-            return {row["STATUS"]: row["COUNT"] for row in rows}
+            return {row["CLAIM_STATUS_CD"]: row["COUNT"] for row in rows if row["CLAIM_STATUS_CD"]}
         except Exception as e:
             logger.error("get_policies_by_status_failed", error=str(e))
             return {}
@@ -171,19 +171,20 @@ class PolicyRepository(BaseRepository[Policy]):
                 df = self.session.table(self.table_name)
 
                 if start_date:
-                    df = df.filter(col("ISSUE_DATE") >= start_date)
+                    df = df.filter(col("ORIGINAL_EFFECTIVE_DT") >= start_date)
                 if end_date:
-                    df = df.filter(col("ISSUE_DATE") <= end_date)
+                    df = df.filter(col("ORIGINAL_EFFECTIVE_DT") <= end_date)
 
+                # Use BENEFIT_INFLATION as a proxy for policy type
                 return (
-                    df.group_by("POLICY_TYPE")
-                    .agg(count(col("POLICY_ID")).alias("COUNT"))
+                    df.group_by("BENEFIT_INFLATION")
+                    .agg(count(col("POLICY_MONTHLY_SNAPSHOT_ID")).alias("COUNT"))
                     .collect()
                 )
 
             rows = await loop.run_in_executor(None, query)
 
-            return {row["POLICY_TYPE"]: row["COUNT"] for row in rows}
+            return {row["BENEFIT_INFLATION"] or "UNKNOWN": row["COUNT"] for row in rows}
         except Exception as e:
             logger.error("get_policies_by_type_failed", error=str(e))
             return {}
@@ -199,12 +200,13 @@ class PolicyRepository(BaseRepository[Policy]):
                 df = self.session.table(self.table_name)
 
                 if start_date:
-                    df = df.filter(col("ISSUE_DATE") >= start_date)
+                    df = df.filter(col("ORIGINAL_EFFECTIVE_DT") >= start_date)
                 if end_date:
-                    df = df.filter(col("ISSUE_DATE") <= end_date)
+                    df = df.filter(col("ORIGINAL_EFFECTIVE_DT") <= end_date)
 
                 total = df.count()
-                lapsed = df.filter(col("STATUS") == PolicyStatus.LAPSED.value).count()
+                # Count policies with expiration dates as "lapsed"
+                lapsed = df.filter(col("POLICY_EXPIRATION_DT").isNotNull()).count()
 
                 return total, lapsed
 
@@ -219,23 +221,81 @@ class PolicyRepository(BaseRepository[Policy]):
             return 0.0
 
     def _row_to_policy(self, row: Any) -> Policy:
-        """Convert Snowpark Row to Policy domain model."""
+        """Convert Snowpark Row to Policy domain model from POLICY_MONTHLY_SNAPSHOT_FACT."""
+        # Helper function to safely convert to Decimal
+        def to_decimal(value: Any) -> Optional[Decimal]:
+            if value is None:
+                return None
+            return Decimal(str(value))
+        
         return Policy(
-            policy_id=row["POLICY_ID"],
-            policy_number=row["POLICY_NUMBER"],
-            policy_type=PolicyType(row["POLICY_TYPE"]),
-            status=PolicyStatus(row["STATUS"]),
-            issue_date=row["ISSUE_DATE"],
-            effective_date=row["EFFECTIVE_DATE"],
-            premium_amount=Decimal(str(row["PREMIUM_AMOUNT"])),
-            benefit_amount=Decimal(str(row["BENEFIT_AMOUNT"])),
-            elimination_period_days=row["ELIMINATION_PERIOD_DAYS"],
-            benefit_period_months=row["BENEFIT_PERIOD_MONTHS"],
-            insured_name=row["INSURED_NAME"],
-            insured_age=row["INSURED_AGE"],
-            insured_state=row["INSURED_STATE"],
-            agent_id=row.get("AGENT_ID"),
-            termination_date=row.get("TERMINATION_DATE"),
-            last_premium_date=row.get("LAST_PREMIUM_DATE"),
+            # Core identifiers
+            policy_monthly_snapshot_id=str(row["POLICY_MONTHLY_SNAPSHOT_ID"]),
+            policy_dim_id=str(row["POLICY_DIM_ID"]),
+            policy_id=int(row["POLICY_ID"]),
+            
+            # Insured information
+            insured_life_dim_id=row.get("INSURED_LIFE_DIM_ID"),
+            insured_life_id=row.get("INSURED_LIFE_ID"),
+            insured_city=row.get("INSURED_CITY"),
+            insured_state=row.get("INSURED_STATE"),
+            insured_zip=row.get("INSURED_ZIP"),
+            policy_residence_state=row.get("POLICY_RESIDENCE_STATE"),
+            claimant_sex=row.get("CLAIMANT_SEX"),
+            rated_age=row.get("RATED_AGE"),
+            
+            # Premium information
+            annualized_premium=to_decimal(row.get("ANNUALIZED_PREMIUM")),
+            lifetime_collected_premium=to_decimal(row.get("LIFETIME_COLLECTED_PREMIUM")),
+            lifetime_waiver_premium=to_decimal(row.get("LIFETIME_WAIVER_PREMIUM")),
+            premium_frequency=row.get("PREMIUM_FREQUENCY"),
+            offset_premium=to_decimal(row.get("OFFSET_PREMIUM")),
+            
+            # Status and dates
+            policy_status_dim_id=row.get("POLICY_STATUS_DIM_ID"),
+            original_effective_dt=row.get("ORIGINAL_EFFECTIVE_DT"),
+            coverage_effective_dt=row.get("COVERAGE_EFFECTIVE_DT"),
+            coverage_status_dt=row.get("COVERAGE_STATUS_DT"),
+            coverage_expiration_dt=row.get("COVERAGE_EXPIRATION_DT"),
+            policy_expiration_dt=row.get("POLICY_EXPIRATION_DT"),
+            appn_rcv_dt=row.get("APPN_RCV_DT"),
+            appn_sig_dt=row.get("APPN_SIG_DT"),
+            appn_sig_state=row.get("APPN_SIG_STATE"),
+            paid_to_date=row.get("PAID_TO_DATE"),
+            
+            # Coverage information
+            current_coverage_id=row.get("CURRENT_COVERAGE_ID"),
+            current_coverage_dim_id=row.get("CURRENT_COVERAGE_DIM_ID"),
+            tax_qualification_dim_id=row.get("TAX_QUALIFICATION_DIM_ID"),
+            benefit_inflation=row.get("BENEFIT_INFLATION"),
+            benefit_increase=row.get("BENEFIT_INCREASE"),
+            
+            # Waiver information
+            in_waiver_flg=row.get("IN_WAIVER_FLG"),
+            current_waiver_effective_date=row.get("CURRENT_WAIVER_EFFECTIVE_DATE"),
+            current_waiver_expiration_date=row.get("CURRENT_WAIVER_EXPIRATION_DATE"),
+            
+            # Claim information
+            latest_claim_dim_id=row.get("LATEST_CLAIM_DIM_ID"),
+            latest_claim_id=row.get("LATEST_CLAIM_ID"),
+            claim_status_cd=row.get("CLAIM_STATUS_CD"),
+            first_eob_decision_dt=row.get("FIRST_EOB_DECISION_DT"),
+            latest_eob_decision_dt=row.get("LATEST_EOB_DECISION_DT"),
+            latest_claim_incurred_dt=row.get("LATEST_CLAIM_INCURRED_DT"),
+            latest_claim_expiration_dt=row.get("LATEST_CLAIM_EXPIRATION_DT"),
+            total_active_claims=row.get("TOTAL_ACTIVE_CLAIMS"),
+            total_rfbs=row.get("TOTAL_RFBS"),
+            total_approved_rfbs=row.get("TOTAL_APPROVED_RFBS"),
+            total_denials=row.get("TOTAL_DENIALS"),
+            
+            # Financial summary
+            total_request_for_reimbursment_benefit=to_decimal(row.get("TOTAL_REQUEST_FOR_REIMBURSMENT_BENEFIT")),
+            total_request_for_reimbursment_admin=to_decimal(row.get("TOTAL_REQUEST_FOR_REIMBURSMENT_ADMIN")),
+            total_request_for_reimbursment_pending=to_decimal(row.get("TOTAL_REQUEST_FOR_REIMBURSMENT_PENDING")),
+            
+            # Metadata
+            carrier_name=row.get("CARRIER_NAME"),
+            environment=row.get("ENVIRONMENT"),
+            policy_snapshot_date=row.get("POLICY_SNAPSHOT_DATE"),
         )
 

@@ -80,7 +80,7 @@ def render_policy_analytics(
     with col4:
         create_kpi_card(
             "Avg Insured Age",
-            f"{metrics.avg_insured_age:.1f} years",
+            f"{metrics.avg_insured_age:.1f} years" if metrics.avg_insured_age else "N/A",
         )
 
     # Second KPI Row
@@ -212,14 +212,14 @@ def render_policy_analytics(
             policies_data.append(
                 {
                     "Policy ID": policy.policy_id[:8] + "...",
-                    "Policy Number": policy.policy_number,
-                    "Type": policy.policy_type,
-                    "Status": policy.status,
-                    "Insured Age": policy.insured_age,
-                    "State": policy.insured_state,
+                    "Policy Number": policy.policy_number or "N/A",
+                    "Type": policy.policy_type or policy.benefit_inflation or "N/A",
+                    "Status": policy.status or "N/A",
+                    "Insured Age": policy.insured_age or "N/A",
+                    "State": policy.insured_state or "N/A",
                     "Premium": format_currency(policy.premium_amount),
                     "Benefit": format_currency(policy.benefit_amount),
-                    "Issue Date": policy.issue_date.strftime("%Y-%m-%d"),
+                    "Issue Date": policy.issue_date.strftime("%Y-%m-%d") if policy.issue_date else "N/A",
                 }
             )
 
@@ -265,7 +265,7 @@ def render_policy_analytics(
         st.info(
             f"""
             **Demographics**
-            - Average insured age: {metrics.avg_insured_age:.1f} years
+            - Average insured age: {metrics.avg_insured_age:.1f if metrics.avg_insured_age else 0} years
             - Total active policyholders: {format_number(metrics.active_policies)}
             - Policy type diversity: {len(metrics.policy_type_distribution)} types
             """
