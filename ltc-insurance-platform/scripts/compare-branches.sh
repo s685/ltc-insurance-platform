@@ -16,12 +16,61 @@ FOLDERS=()
 SUMMARY_ONLY=0
 SHOW_CONTENT=1
 COLOR=1
+IGNORE_PATTERNS=("carrier_name_dim_id" "CARRIER_NAME_DIM_ID")  # Patterns to ignore as "no change"
 
 log_info(){ [[ $COLOR -eq 1 ]] && echo -e "\033[36m$*\033[0m" || echo "$*"; }
 log_step(){ [[ $COLOR -eq 1 ]] && echo -e "\033[32m$*\033[0m" || echo "$*"; }
 log_warn(){ [[ $COLOR -eq 1 ]] && echo -e "\033[33m$*\033[0m" || echo "$*"; }
 log_err(){ [[ $COLOR -eq 1 ]] && echo -e "\033[31m$*\033[0m" 1>&2 || echo "$*" 1>&2; }
 log_diff(){ [[ $COLOR -eq 1 ]] && echo -e "\033[35m$*\033[0m" || echo "$*"; }
+
+# Check if diff only contains ignored patterns
+is_only_ignored_diff(){
+  local file="$1"
+  local branch1="$2"
+  local branch2="$3"
+  
+  # Get the full diff
+  local diff_output
+  diff_output=$(git diff "$branch1" "$branch2" -- "$file" 2>/dev/null || true)
+  
+  if [[ -z "$diff_output" ]]; then
+    return 1  # No diff, not ignored
+  fi
+  
+  # Extract only the actual changed lines (not context)
+  local actual_changes
+  actual_changes=$(echo "$diff_output" | grep -E "^\+[^+]|^-[^-]" || true)
+  
+  if [[ -z "$actual_changes" ]]; then
+    return 1  # No actual changes found
+  fi
+  
+  # Check if all changes contain only ignored patterns
+  local has_other_changes=0
+  
+  while IFS= read -r line; do
+    [[ -z "$line" ]] && continue
+    
+    # Check if this line contains any ignored pattern
+    local found_ignored=0
+    for pattern in "${IGNORE_PATTERNS[@]}"; do
+      if echo "$line" | grep -qi "$pattern"; then
+        found_ignored=1
+        break
+      fi
+    done
+    
+    # If this is a change line and doesn't contain ignored pattern, it's a real change
+    if [[ $found_ignored -eq 0 ]]; then
+      has_other_changes=1
+      break
+    fi
+  done <<< "$actual_changes"
+  
+  # If no other changes found, it's only ignored patterns
+  [[ $has_other_changes -eq 0 ]] && return 0 || return 1
+}
 
 usage(){
   cat <<EOF
@@ -98,10 +147,12 @@ echo ""
 
 TOTAL_DIFFS=0
 TOTAL_FILES=0
+IGNORED_DIFFS=0
 DIFFERENT_FILES=()
 NEW_FILES=()
 DELETED_FILES=()
 MODIFIED_FILES=()
+IGNORED_FILES=()
 
 for folder in "${FOLDERS[@]}"; do
   [[ -z "$folder" ]] && continue
@@ -185,7 +236,15 @@ for folder in "${FOLDERS[@]}"; do
       # Files are identical (or git diff doesn't show output)
       continue
     else
-      # Files differ
+      # Files differ - check if it's only ignored patterns
+      if is_only_ignored_diff "$file" "$BRANCH1" "$BRANCH2"; then
+        # Only carrier_name_dim_id changes - treat as no change
+        IGNORED_FILES+=("$file")
+        IGNORED_DIFFS=$((IGNORED_DIFFS + 1))
+        continue
+      fi
+      
+      # Real differences found
       MODIFIED_FILES+=("$file")
       folder_diff_count=$((folder_diff_count + 1))
       TOTAL_DIFFS=$((TOTAL_DIFFS + 1))
@@ -226,6 +285,9 @@ log_step "━━━━━━━━━━━━━━━━━━━━━━━�
 echo "Branches compared: $BRANCH1 ↔ $BRANCH2"
 echo "Total files scanned: $TOTAL_FILES"
 echo "Total differences: $TOTAL_DIFFS"
+if [[ $IGNORED_DIFFS -gt 0 ]]; then
+  log_info "Ignored changes (carrier_name_dim_id only): $IGNORED_DIFFS"
+fi
 echo ""
 
 if [[ ${#NEW_FILES[@]} -gt 0 ]]; then
@@ -248,6 +310,14 @@ if [[ ${#MODIFIED_FILES[@]} -gt 0 ]]; then
   log_diff "🔄 Modified files (${#MODIFIED_FILES[@]}):"
   for f in "${MODIFIED_FILES[@]}"; do
     echo "    ~ $f"
+  done
+  echo ""
+fi
+
+if [[ ${#IGNORED_FILES[@]} -gt 0 ]]; then
+  log_info "🚫 Ignored files (only carrier_name_dim_id changes, ${#IGNORED_FILES[@]}):"
+  for f in "${IGNORED_FILES[@]}"; do
+    echo "    ⊘ $f"
   done
   echo ""
 fi
